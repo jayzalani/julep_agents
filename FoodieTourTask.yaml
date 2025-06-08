@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/julep-ai/julep/refs/heads/dev/schemas/create_task_request.json
+name: Julep Foodie Tour Task
+description: A Julep agent that creates delightful one-day foodie tours for cities, considering weather conditions and featuring iconic local dishes with top-rated restaurants.
+
+########################################################
+################### INPUT SCHEMA #######################
+########################################################
+
+input_schema:
+  type: object
+  properties:
+    cities:
+      type: array
+      items:
+        type: string
+      description: The cities to create foodie tours for.
+
+########################################################
+################### TOOLS ##############################
+########################################################
+
+tools:
+- name: wikipedia
+  type: integration
+  integration:
+    provider: wikipedia
+
+- name: weather
+  type: integration
+  integration:
+    provider: weather
+    setup:
+      openweathermap_api_key: "cb37b9529033cd9643971bb9dc81958f"
+
+- name: internet_search
+  type: integration
+  integration:
+    provider: brave
+    setup:
+      brave_api_key: "BSAn2E3Ek5rrC2fXKN5oITBw9SfpIWw"
+
+########################################################
+################### MAIN WORKFLOW ######################
+########################################################
+
+main:
+# Step 1: Get weather for all cities
+- over: $ steps[0].input.cities
+  map:
+    tool: weather
+    arguments:
+      location: $ _
+
+# Step 2: Search for iconic local dishes for each city
+- over: $ steps[0].input.cities
+  map:
+    tool: internet_search
+    arguments:
+      query: $ 'iconic local dishes traditional food ' + _
+
+# Step 3: Get dining recommendations based on weather
+- over: $ steps[0].input.cities
+  map:
+    tool: internet_search
+    arguments:
+      query: $ 'best restaurants top rated dining ' + _
+
+# Step 4: Create comprehensive city data structure
+- evaluate:
+    city_data: |-
+      $ list(
+        zip(
+          steps[0].input.cities,
+          [output['result'] for output in steps[0].output],
+          steps[1].output,
+          steps[2].output
+        )
+      )
+
+# Step 5: Generate foodie tour for each city
+- over: $ _['city_data']
+  parallelism: 3
+  map:
+    prompt:
+    - role: system
+      content: >-
+        You are a passionate food enthusiast and travel expert specializing in creating immersive culinary experiences. 
+        Your task is to create a delightful one-day foodie tour for each city that considers:
+        
+        1. Today's weather conditions to suggest indoor or outdoor dining
+        2. 3 iconic local dishes that represent the city's culinary heritage
+        3. Top-rated restaurants serving these dishes
+        4. A complete breakfast, lunch, and dinner narrative that flows naturally throughout the day
+        
+        Create engaging, descriptive narratives that make the reader excited about the culinary journey.
+        Include practical details like timing, weather considerations, and why each dish/restaurant was chosen.
+        
+        Format your response as a complete day itinerary with rich descriptions and storytelling elements.
+    
+    - role: user
+      content: >-
+        $ f'''Please create a one-day foodie tour for:
+        
+        City: "{_[0]}"
+        Weather: "{_[1]}"
+        Local Dishes Information: "{_[2]}"
+        Restaurant Information: "{_[3]}"
+        
+        Requirements:
+        - Suggest indoor/outdoor dining based on weather
+        - Select 3 iconic local dishes
+        - Find top-rated restaurants for these dishes
+        - Create breakfast, lunch, and dinner experiences
+        - Write engaging narratives for each meal
+        - Consider weather impact on dining choices'''
+    unwrap: true
+
+# Step 6: Compile final foodie tour guide
+- evaluate:
+    complete_foodie_guide: |-
+      $ '''🍽️ ULTIMATE FOODIE TOUR GUIDE 🍽️
+      =====================================
+      
+      Welcome to your personalized culinary adventure! Below are expertly crafted one-day foodie tours 
+      for each of your selected cities, considering today's weather and featuring the most iconic local dishes.
+      
+      ''' + '\n\n🌟 '.join(_ for _ in _) + '\n\nBon Appétit! 🥂'
